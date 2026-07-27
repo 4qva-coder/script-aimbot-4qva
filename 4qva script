@@ -13,6 +13,9 @@ local settings = {
     highlightEnabled = true,
     boxEnabled = false,
     nameEspEnabled = true,
+    hideLocalNameEnabled = false,
+    highlightColor = {R = 255, G = 120, B = 120},
+    tracerColor = {R = 255, G = 255, B = 255},
     weaponEspEnabled = false,
     aimSmoothEnabled = true,
     smoothness = 0.22,
@@ -32,8 +35,12 @@ local function saveConfig()
 
     local saved = {}
     for key, value in pairs(settings) do
-        if type(value) ~= "function" and type(value) ~= "table" then
-            saved[key] = value
+        if type(value) ~= "function" then
+            if type(value) == "table" and value.R ~= nil and value.G ~= nil and value.B ~= nil then
+                saved[key] = {R = value.R, G = value.G, B = value.B}
+            elseif type(value) ~= "table" then
+                saved[key] = value
+            end
         end
     end
 
@@ -100,6 +107,13 @@ local function createDrawing(typeName)
     return success and result or nil
 end
 
+local function getColor3(colorSetting)
+    if type(colorSetting) == "table" and colorSetting.R ~= nil and colorSetting.G ~= nil and colorSetting.B ~= nil then
+        return Color3.fromRGB(colorSetting.R, colorSetting.G, colorSetting.B)
+    end
+    return Color3.new(1, 1, 1)
+end
+
 local fovCircle = createDrawing("Circle")
 if fovCircle then
     fovCircle.Transparency = 0.7
@@ -118,7 +132,7 @@ local function createGui()
     local frame = Instance.new("Frame")
     frame.Name = "MainFrame"
     frame.Parent = ui
-    frame.Size = UDim2.new(0, 270, 0, 608)
+    frame.Size = UDim2.new(0, 270, 0, 700)
     frame.Position = UDim2.new(0.35, 0, 0.25, 0)
     frame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
     frame.BorderSizePixel = 0
@@ -163,11 +177,13 @@ local function createGui()
     local wallBtn = createButton(154, "WallCheck: OFF", Color3.fromRGB(235, 120, 60))
     local tracerBtn = createButton(204, "Tracers: ON", Color3.fromRGB(80, 200, 120))
     local highlightBtn = createButton(254, "Highlight: ON", Color3.fromRGB(255, 80, 120))
-    local boxBtn = createButton(304, "Box: OFF", Color3.fromRGB(255, 195, 50))
-    local nameBtn = createButton(354, "Names: ON", Color3.fromRGB(110, 120, 230))
-    local weaponBtn = createButton(404, "Weapon: OFF", Color3.fromRGB(255, 150, 60))
-    local smoothBtn = createButton(454, "Smooth: ON", Color3.fromRGB(130, 170, 240))
-    local saveBtn = createButton(504, "Save Config", Color3.fromRGB(90, 190, 90))
+    local nameBtn = createButton(304, "Names: ON", Color3.fromRGB(110, 120, 230))
+    local highlightColorBtn = createButton(354, "HL Color", Color3.fromRGB(255, 120, 120))
+    local hideNameBtn = createButton(404, "Hide Me: OFF", Color3.fromRGB(255, 110, 140))
+    local tracerColorBtn = createButton(454, "TR Color", Color3.fromRGB(255, 255, 255))
+    local weaponBtn = createButton(504, "Weapon: OFF", Color3.fromRGB(255, 150, 60))
+    local smoothBtn = createButton(554, "Smooth: ON", Color3.fromRGB(130, 170, 240))
+    local saveBtn = createButton(604, "Save Config", Color3.fromRGB(90, 190, 90))
 
     local collapseBtn = Instance.new("TextButton")
     collapseBtn.Parent = frame
@@ -186,7 +202,7 @@ local function createGui()
     local fovLabel = Instance.new("TextLabel")
     fovLabel.Parent = frame
     fovLabel.Size = UDim2.new(0.92, 0, 0, 18)
-    fovLabel.Position = UDim2.new(0.04, 0, 0, 544)
+    fovLabel.Position = UDim2.new(0.04, 0, 0, 644)
     fovLabel.BackgroundTransparency = 1
     fovLabel.TextColor3 = Color3.new(1, 1, 1)
     fovLabel.Font = Enum.Font.Gotham
@@ -197,7 +213,7 @@ local function createGui()
     local fovTrack = Instance.new("Frame")
     fovTrack.Parent = frame
     fovTrack.Size = UDim2.new(0.92, 0, 0, 8)
-    fovTrack.Position = UDim2.new(0.04, 0, 0, 574)
+    fovTrack.Position = UDim2.new(0.04, 0, 0, 674)
     fovTrack.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
     fovTrack.BorderSizePixel = 0
     local fovTrackCorner = Instance.new("UICorner")
@@ -225,15 +241,33 @@ local function createGui()
     handleCorner.CornerRadius = UDim.new(1, 0)
     handleCorner.Parent = fovHandle
 
-    local contentItems = {aimBtn, espBtn, wallBtn, tracerBtn, highlightBtn, boxBtn, nameBtn, weaponBtn, smoothBtn, saveBtn, fovLabel, fovTrack, fovHandle}
+    local contentItems = {aimBtn, espBtn, wallBtn, tracerBtn, highlightBtn, nameBtn, highlightColorBtn, hideNameBtn, tracerColorBtn, weaponBtn, smoothBtn, saveBtn, fovLabel, fovTrack, fovHandle}
     local collapsed = false
     local function setCollapsed(value)
         collapsed = value
         for _, item in ipairs(contentItems) do
             item.Visible = not collapsed
         end
-        frame.Size = collapsed and UDim2.new(0, 270, 0, 54) or UDim2.new(0, 270, 0, 608)
+        frame.Size = collapsed and UDim2.new(0, 270, 0, 54) or UDim2.new(0, 270, 0, 700)
         collapseBtn.Text = collapsed and "v" or "^"
+    end
+
+    local colorPresets = {
+        {name = "Red", color = {R = 255, G = 120, B = 120}},
+        {name = "Blue", color = {R = 80, G = 220, B = 255}},
+        {name = "Green", color = {R = 80, G = 220, B = 120}},
+        {name = "Pink", color = {R = 255, G = 80, B = 140}},
+        {name = "Cyan", color = {R = 120, G = 255, B = 255}},
+        {name = "Orange", color = {R = 255, G = 180, B = 80}},
+    }
+
+    local function getPresetName(colorSetting)
+        for _, preset in ipairs(colorPresets) do
+            if preset.color.R == colorSetting.R and preset.color.G == colorSetting.G and preset.color.B == colorSetting.B then
+                return preset.name
+            end
+        end
+        return "Custom"
     end
 
     local function updateGuiButtons()
@@ -247,10 +281,14 @@ local function createGui()
         tracerBtn.BackgroundColor3 = settings.tracerEnabled and Color3.fromRGB(80, 200, 120) or Color3.fromRGB(70, 100, 90)
         highlightBtn.Text = "Highlight: " .. (settings.highlightEnabled and "ON" or "OFF")
         highlightBtn.BackgroundColor3 = settings.highlightEnabled and Color3.fromRGB(255, 80, 120) or Color3.fromRGB(120, 60, 70)
-        boxBtn.Text = "Box: " .. (settings.boxEnabled and "ON" or "OFF")
-        boxBtn.BackgroundColor3 = settings.boxEnabled and Color3.fromRGB(255, 195, 50) or Color3.fromRGB(120, 90, 70)
         nameBtn.Text = "Names: " .. (settings.nameEspEnabled and "ON" or "OFF")
         nameBtn.BackgroundColor3 = settings.nameEspEnabled and Color3.fromRGB(110, 120, 230) or Color3.fromRGB(80, 80, 130)
+        highlightColorBtn.Text = "HL: " .. getPresetName(settings.highlightColor)
+        highlightColorBtn.BackgroundColor3 = getColor3(settings.highlightColor)
+        hideNameBtn.Text = "Hide Me: " .. (settings.hideLocalNameEnabled and "ON" or "OFF")
+        hideNameBtn.BackgroundColor3 = settings.hideLocalNameEnabled and Color3.fromRGB(255, 90, 120) or Color3.fromRGB(120, 70, 90)
+        tracerColorBtn.Text = "TR: " .. getPresetName(settings.tracerColor)
+        tracerColorBtn.BackgroundColor3 = getColor3(settings.tracerColor)
         weaponBtn.Text = "Weapon: " .. (settings.weaponEspEnabled and "ON" or "OFF")
         weaponBtn.BackgroundColor3 = settings.weaponEspEnabled and Color3.fromRGB(255, 150, 60) or Color3.fromRGB(120, 90, 70)
         smoothBtn.Text = "Smooth: " .. (settings.aimSmoothEnabled and "ON" or "OFF")
@@ -285,13 +323,41 @@ local function createGui()
         updateGuiButtons()
     end)
 
-    boxBtn.MouseButton1Click:Connect(function()
-        settings.boxEnabled = not settings.boxEnabled
+    nameBtn.MouseButton1Click:Connect(function()
+        settings.nameEspEnabled = not settings.nameEspEnabled
         updateGuiButtons()
     end)
 
-    nameBtn.MouseButton1Click:Connect(function()
-        settings.nameEspEnabled = not settings.nameEspEnabled
+    highlightColorBtn.MouseButton1Click:Connect(function()
+        local currentIndex = 1
+        for i, preset in ipairs(colorPresets) do
+            if preset.color.R == settings.highlightColor.R and preset.color.G == settings.highlightColor.G and preset.color.B == settings.highlightColor.B then
+                currentIndex = i
+                break
+            end
+        end
+        local nextIndex = currentIndex % #colorPresets + 1
+        local preset = colorPresets[nextIndex]
+        settings.highlightColor = {R = preset.color.R, G = preset.color.G, B = preset.color.B}
+        updateGuiButtons()
+    end)
+
+    hideNameBtn.MouseButton1Click:Connect(function()
+        settings.hideLocalNameEnabled = not settings.hideLocalNameEnabled
+        updateGuiButtons()
+    end)
+
+    tracerColorBtn.MouseButton1Click:Connect(function()
+        local currentIndex = 1
+        for i, preset in ipairs(colorPresets) do
+            if preset.color.R == settings.tracerColor.R and preset.color.G == settings.tracerColor.G and preset.color.B == settings.tracerColor.B then
+                currentIndex = i
+                break
+            end
+        end
+        local nextIndex = currentIndex % #colorPresets + 1
+        local preset = colorPresets[nextIndex]
+        settings.tracerColor = {R = preset.color.R, G = preset.color.G, B = preset.color.B}
         updateGuiButtons()
     end)
 
@@ -431,8 +497,9 @@ local function createHighlight(character)
     local highlight = Instance.new("Highlight")
     highlight.FillTransparency = 0.5
     highlight.OutlineTransparency = 0
-    highlight.FillColor = Color3.fromRGB(255, 120, 120)
-    highlight.OutlineColor = Color3.fromRGB(255, 180, 80)
+    local highlightColor = getColor3(settings.highlightColor)
+    highlight.FillColor = highlightColor
+    highlight.OutlineColor = highlightColor
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     highlight.Parent = character
     highlights[character] = highlight
@@ -518,7 +585,11 @@ local function createNameTag(player, character)
         local weaponName = getEquippedToolName(player)
         local labelText = ""
         if settings.nameEspEnabled then
-            labelText = player.Name
+            if player == LocalPlayer and settings.hideLocalNameEnabled then
+                labelText = ""
+            else
+                labelText = player.Name
+            end
         end
         if settings.weaponEspEnabled and weaponName then
             if labelText ~= "" then
@@ -546,7 +617,7 @@ local function createTracer(character)
     if not line then
         return
     end
-    line.Color = Color3.fromRGB(255, 255, 255)
+    line.Color = getColor3(settings.tracerColor)
     line.Thickness = 2
     line.Transparency = 0.7
     line.Visible = false
