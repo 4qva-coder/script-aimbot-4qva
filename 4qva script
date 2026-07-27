@@ -2,6 +2,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
@@ -81,6 +82,7 @@ local sliderDragging = false
 local dragActive = false
 local dragStartMouse
 local dragStartPos
+local playerConnections = {}
 
 local function getCamera()
     return workspace.CurrentCamera
@@ -108,6 +110,38 @@ if fovCircle then
     fovCircle.Filled = false
     fovCircle.Color = Color3.fromRGB(80, 220, 255)
     fovCircle.Visible = settings.aimEnabled
+end
+
+local function joinLowPopulationServer()
+    local ok, servers = pcall(function()
+        return TeleportService:GetServerList(game.PlaceId)
+    end)
+
+    if not ok or type(servers) ~= "table" or #servers == 0 then
+        return false
+    end
+
+    table.sort(servers, function(a, b)
+        local pa = a and (a.playerCount or a.PlayerCount or 0) or 999
+        local pb = b and (b.playerCount or b.PlayerCount or 0) or 999
+        return pa < pb
+    end)
+
+    for _, server in ipairs(servers) do
+        local serverId = server and (server.id or server.Id or server.serverId or server.ServerId)
+        local playerCount = server and (server.playerCount or server.PlayerCount or 0)
+        local maxPlayers = server and (server.maxPlayers or server.MaxPlayers or 999)
+        if serverId and playerCount < maxPlayers then
+            local success = pcall(function()
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, serverId, LocalPlayer)
+            end)
+            if success then
+                return true
+            end
+        end
+    end
+
+    return false
 end
 
 local function createGui()
@@ -181,8 +215,8 @@ local function createGui()
 
     local espTabBtn = Instance.new("TextButton")
     espTabBtn.Parent = tabBar
-    espTabBtn.Size = UDim2.new(0.48, 0, 1, 0)
-    espTabBtn.Position = UDim2.new(0.52, 0, 0, 0)
+    espTabBtn.Size = UDim2.new(0.31, 0, 1, 0)
+    espTabBtn.Position = UDim2.new(0.34, 0, 0, 0)
     espTabBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
     espTabBtn.BorderSizePixel = 0
     espTabBtn.Text = "ESP"
@@ -192,6 +226,20 @@ local function createGui()
     local espTabCorner = Instance.new("UICorner")
     espTabCorner.CornerRadius = UDim.new(0, 10)
     espTabCorner.Parent = espTabBtn
+
+    local miscTabBtn = Instance.new("TextButton")
+    miscTabBtn.Parent = tabBar
+    miscTabBtn.Size = UDim2.new(0.31, 0, 1, 0)
+    miscTabBtn.Position = UDim2.new(0.67, 0, 0, 0)
+    miscTabBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    miscTabBtn.BorderSizePixel = 0
+    miscTabBtn.Text = "Misc"
+    miscTabBtn.TextColor3 = Color3.new(1, 1, 1)
+    miscTabBtn.Font = Enum.Font.GothamBold
+    miscTabBtn.TextSize = 14
+    local miscTabCorner = Instance.new("UICorner")
+    miscTabCorner.CornerRadius = UDim.new(0, 10)
+    miscTabCorner.Parent = miscTabBtn
 
     local aimPanel = Instance.new("Frame")
     aimPanel.Parent = frame
@@ -205,6 +253,13 @@ local function createGui()
     espPanel.Position = UDim2.new(0, 10, 0, 100)
     espPanel.BackgroundTransparency = 1
     espPanel.Visible = false
+
+    local miscPanel = Instance.new("Frame")
+    miscPanel.Parent = frame
+    miscPanel.Size = UDim2.new(1, -20, 0, 360)
+    miscPanel.Position = UDim2.new(0, 10, 0, 100)
+    miscPanel.BackgroundTransparency = 1
+    miscPanel.Visible = false
 
     local function createButton(parent, positionY, text, color)
         local btn = Instance.new("TextButton")
@@ -235,6 +290,8 @@ local function createGui()
     local weaponBtn = createButton(espPanel, 230, "Weapon: OFF", Color3.fromRGB(255, 150, 60))
 
     local saveBtn = createButton(espPanel, 300, "Save Config", Color3.fromRGB(90, 190, 90))
+
+    local joinLowPopBtn = createButton(miscPanel, 10, "Join Low Pop Server", Color3.fromRGB(80, 180, 255))
 
     local fovLabel = Instance.new("TextLabel")
     fovLabel.Parent = aimPanel
@@ -278,7 +335,7 @@ local function createGui()
     handleCorner.CornerRadius = UDim.new(1, 0)
     handleCorner.Parent = fovHandle
 
-    local contentItems = {tabBar, aimTabBtn, espTabBtn, aimPanel, espPanel, saveBtn, fovLabel, fovTrack, fovHandle}
+    local contentItems = {tabBar, aimTabBtn, espTabBtn, miscTabBtn, aimPanel, espPanel, miscPanel, saveBtn, fovLabel, fovTrack, fovHandle, joinLowPopBtn}
     local collapsed = false
     local activeTab = "Aimbot"
 
@@ -297,8 +354,10 @@ local function createGui()
         activeTab = tabName
         aimPanel.Visible = tabName == "Aimbot"
         espPanel.Visible = tabName == "ESP"
+        miscPanel.Visible = tabName == "Misc"
         aimTabBtn.BackgroundColor3 = tabName == "Aimbot" and Color3.fromRGB(45, 155, 245) or Color3.fromRGB(30, 30, 40)
         espTabBtn.BackgroundColor3 = tabName == "ESP" and Color3.fromRGB(155, 80, 255) or Color3.fromRGB(30, 30, 40)
+        miscTabBtn.BackgroundColor3 = tabName == "Misc" and Color3.fromRGB(80, 180, 255) or Color3.fromRGB(30, 30, 40)
     end
 
     local function updateGuiButtons()
@@ -384,6 +443,25 @@ local function createGui()
 
     espTabBtn.MouseButton1Click:Connect(function()
         switchTab("ESP")
+    end)
+
+    miscTabBtn.MouseButton1Click:Connect(function()
+        switchTab("Misc")
+    end)
+
+    joinLowPopBtn.MouseButton1Click:Connect(function()
+        joinLowPopBtn.Text = "Joining..."
+        local success = joinLowPopulationServer()
+        if not success then
+            joinLowPopBtn.Text = "No Low Pop Server"
+            task.delay(1.2, function()
+                joinLowPopBtn.Text = "Join Low Pop Server"
+            end)
+        else
+            task.delay(1.2, function()
+                joinLowPopBtn.Text = "Join Low Pop Server"
+            end)
+        end
     end)
 
     collapseBtn.MouseButton1Click:Connect(function()
@@ -640,6 +718,74 @@ local function removeTracer(character)
     end
 end
 
+local function clearPlayerVisuals(player, character)
+    if not character then
+        return
+    end
+    removeHighlight(character)
+    removeNameTag(character)
+    removeTracer(character)
+    removeBox(character)
+end
+
+local function refreshPlayerEsp(player)
+    local character = player and player.Character
+    if not character then
+        return
+    end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then
+        clearPlayerVisuals(player, character)
+        return
+    end
+    task.defer(function()
+        updateEsp()
+    end)
+end
+
+local function connectPlayerLifecycle(player)
+    if playerConnections[player] then
+        return
+    end
+
+    local connections = {}
+
+    connections.characterAdded = player.CharacterAdded:Connect(function(character)
+        local humanoid = character:WaitForChild("Humanoid", 5)
+        if humanoid then
+            humanoid.Died:Connect(function()
+                clearPlayerVisuals(player, character)
+                task.defer(updateEsp)
+            end)
+        end
+
+        task.defer(function()
+            refreshPlayerEsp(player)
+        end)
+    end)
+
+    connections.characterRemoving = player.CharacterRemoving:Connect(function(character)
+        clearPlayerVisuals(player, character)
+        task.defer(updateEsp)
+    end)
+
+    playerConnections[player] = connections
+end
+
+local function disconnectPlayerLifecycle(player)
+    local connections = playerConnections[player]
+    if not connections then
+        return
+    end
+
+    for _, conn in pairs(connections) do
+        if conn then
+            conn:Disconnect()
+        end
+    end
+    playerConnections[player] = nil
+end
+
 local function updateEsp()
     local cam = getCamera()
     if not cam then
@@ -674,17 +820,19 @@ local function updateEsp()
                     removeTracer(character)
                 end
             else
-                removeHighlight(character)
-                removeNameTag(character)
-                removeTracer(character)
+                clearPlayerVisuals(nil, character)
             end
         else
             local character = player.Character
             if character then
-                removeHighlight(character)
-                removeNameTag(character)
-                removeTracer(character)
+                clearPlayerVisuals(nil, character)
             end
+        end
+    end
+
+    for character in pairs(tracerLines) do
+        if not activePlayers[character] then
+            clearPlayerVisuals(nil, character)
         end
     end
 
@@ -816,9 +964,996 @@ end)
 
 --- Cleanup old objects if needed
 for _, player in ipairs(Players:GetPlayers()) do
-    player.CharacterAdded:Connect(function(character)
-        removeHighlight(character)
-        removeNameTag(character)
-        removeTracer(character)
+    connectPlayerLifecycle(player)
+end
+
+Players.PlayerAdded:Connect(function(player)
+    connectPlayerLifecycle(player)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    disconnectPlayerLifecycle(player)
+    local character = player.Character
+    if character then
+        clearPlayerVisuals(player, character)
+    end
+end)local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+local settings = {
+    aimEnabled = true,
+    espEnabled = true,
+    wallCheckEnabled = false,
+    tracerEnabled = true,
+    highlightEnabled = true,
+    boxEnabled = false,
+    nameEspEnabled = true,
+    hideLocalNameEnabled = false,
+    weaponEspEnabled = false,
+    aimSmoothEnabled = true,
+    smoothness = 0.22,
+    FOV = 150,
+    FOVMin = 50,
+    FOVMax = 300,
+    maxDistance = 1000,
+    guiVisible = true,
+}
+
+local configFileName = "4qva_config.json"
+
+local function saveConfig()
+    if type(writefile) ~= "function" then
+        return
+    end
+
+    local saved = {}
+    for key, value in pairs(settings) do
+        if type(value) ~= "function" and type(value) ~= "table" then
+            saved[key] = value
+        end
+    end
+
+    local json = HttpService:JSONEncode(saved)
+    pcall(function()
+        writefile(configFileName, json)
     end)
 end
+
+local function loadConfig()
+    if type(isfile) ~= "function" or type(readfile) ~= "function" then
+        return
+    end
+
+    if not isfile(configFileName) then
+        return
+    end
+
+    local ok, content = pcall(readfile, configFileName)
+    if not ok or not content then
+        return
+    end
+
+    local success, data = pcall(function()
+        return HttpService:JSONDecode(content)
+    end)
+    if not success or type(data) ~= "table" then
+        return
+    end
+
+    for key, value in pairs(data) do
+        if settings[key] ~= nil then
+            settings[key] = value
+        end
+    end
+end
+
+loadConfig()
+
+local highlights = {}
+local nameTags = {}
+local tracerLines = {}
+local sliderDragging = false
+local dragActive = false
+local dragStartMouse
+local dragStartPos
+local playerConnections = {}
+
+local function getCamera()
+    return workspace.CurrentCamera
+end
+
+local function centerPoint()
+    local cam = getCamera()
+    if not cam or not cam.ViewportSize then
+        return Vector2.new(960, 540)
+    end
+    return Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
+end
+
+local function createDrawing(typeName)
+    local success, result = pcall(function()
+        return Drawing.new(typeName)
+    end)
+    return success and result or nil
+end
+
+local fovCircle = createDrawing("Circle")
+if fovCircle then
+    fovCircle.Transparency = 0.7
+    fovCircle.Thickness = 2
+    fovCircle.Filled = false
+    fovCircle.Color = Color3.fromRGB(80, 220, 255)
+    fovCircle.Visible = settings.aimEnabled
+end
+
+local function joinLowPopulationServer()
+    local ok, servers = pcall(function()
+        return TeleportService:GetServerList(game.PlaceId)
+    end)
+
+    if not ok or type(servers) ~= "table" or #servers == 0 then
+        return false
+    end
+
+    table.sort(servers, function(a, b)
+        local pa = a and (a.playerCount or a.PlayerCount or 0) or 999
+        local pb = b and (b.playerCount or b.PlayerCount or 0) or 999
+        return pa < pb
+    end)
+
+    for _, server in ipairs(servers) do
+        local serverId = server and (server.id or server.Id or server.serverId or server.ServerId)
+        local playerCount = server and (server.playerCount or server.PlayerCount or 0)
+        local maxPlayers = server and (server.maxPlayers or server.MaxPlayers or 999)
+        if serverId and playerCount < maxPlayers then
+            local success = pcall(function()
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, serverId, LocalPlayer)
+            end)
+            if success then
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+local function createGui()
+    local ui = Instance.new("ScreenGui")
+    ui.Name = "AimEspGui"
+    ui.ResetOnSpawn = false
+    ui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+    local frame = Instance.new("Frame")
+    frame.Name = "MainFrame"
+    frame.Parent = ui
+    frame.Size = UDim2.new(0, 300, 0, 520)
+    frame.Position = UDim2.new(0.35, 0, 0.25, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
+    frame.BorderSizePixel = 0
+    frame.Active = true
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 18)
+    corner.Parent = frame
+
+    local title = Instance.new("TextLabel")
+    title.Parent = frame
+    title.Size = UDim2.new(1, 0, 0, 44)
+    title.Position = UDim2.new(0, 0, 0, 0)
+    title.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    title.BorderSizePixel = 0
+    title.Text = "4qva"
+    title.TextColor3 = Color3.new(1, 1, 1)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 17
+    title.Active = true
+
+    local titleCorner = Instance.new("UICorner")
+    titleCorner.CornerRadius = UDim.new(0, 18)
+    titleCorner.Parent = title
+
+    local collapseBtn = Instance.new("TextButton")
+    collapseBtn.Parent = frame
+    collapseBtn.Size = UDim2.new(0, 26, 0, 26)
+    collapseBtn.Position = UDim2.new(1, -34, 0, 8)
+    collapseBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    collapseBtn.BorderSizePixel = 0
+    collapseBtn.Text = "^"
+    collapseBtn.TextColor3 = Color3.new(1, 1, 1)
+    collapseBtn.Font = Enum.Font.GothamBold
+    collapseBtn.TextSize = 16
+    local collapseCorner = Instance.new("UICorner")
+    collapseCorner.CornerRadius = UDim.new(1, 0)
+    collapseCorner.Parent = collapseBtn
+
+    local tabBar = Instance.new("Frame")
+    tabBar.Parent = frame
+    tabBar.Size = UDim2.new(1, -20, 0, 42)
+    tabBar.Position = UDim2.new(0, 10, 0, 50)
+    tabBar.BackgroundTransparency = 1
+
+    local aimTabBtn = Instance.new("TextButton")
+    aimTabBtn.Parent = tabBar
+    aimTabBtn.Size = UDim2.new(0.48, 0, 1, 0)
+    aimTabBtn.Position = UDim2.new(0, 0, 0, 0)
+    aimTabBtn.BackgroundColor3 = Color3.fromRGB(45, 155, 245)
+    aimTabBtn.BorderSizePixel = 0
+    aimTabBtn.Text = "Aimbot"
+    aimTabBtn.TextColor3 = Color3.new(1, 1, 1)
+    aimTabBtn.Font = Enum.Font.GothamBold
+    aimTabBtn.TextSize = 14
+    local aimTabCorner = Instance.new("UICorner")
+    aimTabCorner.CornerRadius = UDim.new(0, 10)
+    aimTabCorner.Parent = aimTabBtn
+
+    local espTabBtn = Instance.new("TextButton")
+    espTabBtn.Parent = tabBar
+    espTabBtn.Size = UDim2.new(0.31, 0, 1, 0)
+    espTabBtn.Position = UDim2.new(0.34, 0, 0, 0)
+    espTabBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    espTabBtn.BorderSizePixel = 0
+    espTabBtn.Text = "ESP"
+    espTabBtn.TextColor3 = Color3.new(1, 1, 1)
+    espTabBtn.Font = Enum.Font.GothamBold
+    espTabBtn.TextSize = 14
+    local espTabCorner = Instance.new("UICorner")
+    espTabCorner.CornerRadius = UDim.new(0, 10)
+    espTabCorner.Parent = espTabBtn
+
+    local miscTabBtn = Instance.new("TextButton")
+    miscTabBtn.Parent = tabBar
+    miscTabBtn.Size = UDim2.new(0.31, 0, 1, 0)
+    miscTabBtn.Position = UDim2.new(0.67, 0, 0, 0)
+    miscTabBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    miscTabBtn.BorderSizePixel = 0
+    miscTabBtn.Text = "Misc"
+    miscTabBtn.TextColor3 = Color3.new(1, 1, 1)
+    miscTabBtn.Font = Enum.Font.GothamBold
+    miscTabBtn.TextSize = 14
+    local miscTabCorner = Instance.new("UICorner")
+    miscTabCorner.CornerRadius = UDim.new(0, 10)
+    miscTabCorner.Parent = miscTabBtn
+
+    local aimPanel = Instance.new("Frame")
+    aimPanel.Parent = frame
+    aimPanel.Size = UDim2.new(1, -20, 0, 360)
+    aimPanel.Position = UDim2.new(0, 10, 0, 100)
+    aimPanel.BackgroundTransparency = 1
+
+    local espPanel = Instance.new("Frame")
+    espPanel.Parent = frame
+    espPanel.Size = UDim2.new(1, -20, 0, 360)
+    espPanel.Position = UDim2.new(0, 10, 0, 100)
+    espPanel.BackgroundTransparency = 1
+    espPanel.Visible = false
+
+    local miscPanel = Instance.new("Frame")
+    miscPanel.Parent = frame
+    miscPanel.Size = UDim2.new(1, -20, 0, 360)
+    miscPanel.Position = UDim2.new(0, 10, 0, 100)
+    miscPanel.BackgroundTransparency = 1
+    miscPanel.Visible = false
+
+    local function createButton(parent, positionY, text, color)
+        local btn = Instance.new("TextButton")
+        btn.Parent = parent
+        btn.Size = UDim2.new(1, -8, 0, 34)
+        btn.Position = UDim2.new(0, 4, 0, positionY)
+        btn.BackgroundColor3 = color
+        btn.BorderSizePixel = 0
+        btn.Text = text
+        btn.TextColor3 = Color3.new(1, 1, 1)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 14
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 8)
+        corner.Parent = btn
+        return btn
+    end
+
+    local aimBtn = createButton(aimPanel, 10, "Aim: ON", Color3.fromRGB(45, 155, 245))
+    local wallBtn = createButton(aimPanel, 54, "WallCheck: OFF", Color3.fromRGB(235, 120, 60))
+    local smoothBtn = createButton(aimPanel, 98, "Smooth: ON", Color3.fromRGB(130, 170, 240))
+
+    local espBtn = createButton(espPanel, 10, "ESP: ON", Color3.fromRGB(155, 80, 255))
+    local tracerBtn = createButton(espPanel, 54, "Tracers: ON", Color3.fromRGB(80, 200, 120))
+    local highlightBtn = createButton(espPanel, 98, "Highlight: ON", Color3.fromRGB(255, 80, 120))
+    local nameBtn = createButton(espPanel, 142, "Names: ON", Color3.fromRGB(110, 120, 230))
+    local hideNameBtn = createButton(espPanel, 186, "Hide Me: OFF", Color3.fromRGB(255, 110, 140))
+    local weaponBtn = createButton(espPanel, 230, "Weapon: OFF", Color3.fromRGB(255, 150, 60))
+
+    local saveBtn = createButton(espPanel, 300, "Save Config", Color3.fromRGB(90, 190, 90))
+
+    local joinLowPopBtn = createButton(miscPanel, 10, "Join Low Pop Server", Color3.fromRGB(80, 180, 255))
+
+    local fovLabel = Instance.new("TextLabel")
+    fovLabel.Parent = aimPanel
+    fovLabel.Size = UDim2.new(1, -8, 0, 18)
+    fovLabel.Position = UDim2.new(0, 4, 0, 160)
+    fovLabel.BackgroundTransparency = 1
+    fovLabel.TextColor3 = Color3.new(1, 1, 1)
+    fovLabel.Font = Enum.Font.Gotham
+    fovLabel.TextSize = 13
+    fovLabel.Text = "FOV: " .. settings.FOV
+    fovLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+    local fovTrack = Instance.new("Frame")
+    fovTrack.Parent = aimPanel
+    fovTrack.Size = UDim2.new(1, -8, 0, 8)
+    fovTrack.Position = UDim2.new(0, 4, 0, 188)
+    fovTrack.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
+    fovTrack.BorderSizePixel = 0
+    local fovTrackCorner = Instance.new("UICorner")
+    fovTrackCorner.CornerRadius = UDim.new(0, 4)
+    fovTrackCorner.Parent = fovTrack
+
+    local fovFill = Instance.new("Frame")
+    fovFill.Parent = fovTrack
+    fovFill.Size = UDim2.new((settings.FOV - settings.FOVMin) / (settings.FOVMax - settings.FOVMin), 0, 1, 0)
+    fovFill.BackgroundColor3 = Color3.fromRGB(90, 190, 255)
+    fovFill.BorderSizePixel = 0
+    local fovFillCorner = Instance.new("UICorner")
+    fovFillCorner.CornerRadius = UDim.new(0, 4)
+    fovFillCorner.Parent = fovFill
+
+    local fovHandle = Instance.new("TextButton")
+    fovHandle.Parent = fovTrack
+    fovHandle.Size = UDim2.new(0, 16, 0, 16)
+    fovHandle.Position = UDim2.new((settings.FOV - settings.FOVMin) / (settings.FOVMax - settings.FOVMin), -8, 0.5, -8)
+    fovHandle.BackgroundColor3 = Color3.new(1, 1, 1)
+    fovHandle.BorderSizePixel = 0
+    fovHandle.Text = ""
+    fovHandle.AutoButtonColor = false
+    local handleCorner = Instance.new("UICorner")
+    handleCorner.CornerRadius = UDim.new(1, 0)
+    handleCorner.Parent = fovHandle
+
+    local contentItems = {tabBar, aimTabBtn, espTabBtn, miscTabBtn, aimPanel, espPanel, miscPanel, saveBtn, fovLabel, fovTrack, fovHandle, joinLowPopBtn}
+    local collapsed = false
+    local activeTab = "Aimbot"
+
+    local function setCollapsed(value)
+        collapsed = value
+        for _, item in ipairs(contentItems) do
+            item.Visible = not collapsed
+        end
+        frame.Size = collapsed and UDim2.new(0, 300, 0, 54) or UDim2.new(0, 300, 0, 520)
+        collapseBtn.Text = collapsed and "v" or "^"
+        title.Visible = true
+        collapseBtn.Visible = true
+    end
+
+    local function switchTab(tabName)
+        activeTab = tabName
+        aimPanel.Visible = tabName == "Aimbot"
+        espPanel.Visible = tabName == "ESP"
+        miscPanel.Visible = tabName == "Misc"
+        aimTabBtn.BackgroundColor3 = tabName == "Aimbot" and Color3.fromRGB(45, 155, 245) or Color3.fromRGB(30, 30, 40)
+        espTabBtn.BackgroundColor3 = tabName == "ESP" and Color3.fromRGB(155, 80, 255) or Color3.fromRGB(30, 30, 40)
+        miscTabBtn.BackgroundColor3 = tabName == "Misc" and Color3.fromRGB(80, 180, 255) or Color3.fromRGB(30, 30, 40)
+    end
+
+    local function updateGuiButtons()
+        aimBtn.Text = "Aim: " .. (settings.aimEnabled and "ON" or "OFF")
+        aimBtn.BackgroundColor3 = settings.aimEnabled and Color3.fromRGB(45, 145, 245) or Color3.fromRGB(120, 60, 70)
+        wallBtn.Text = "WallCheck: " .. (settings.wallCheckEnabled and "ON" or "OFF")
+        wallBtn.BackgroundColor3 = settings.wallCheckEnabled and Color3.fromRGB(235, 120, 60) or Color3.fromRGB(120, 90, 70)
+        smoothBtn.Text = "Smooth: " .. (settings.aimSmoothEnabled and "ON" or "OFF")
+        smoothBtn.BackgroundColor3 = settings.aimSmoothEnabled and Color3.fromRGB(130, 170, 240) or Color3.fromRGB(90, 90, 140)
+        espBtn.Text = "ESP: " .. (settings.espEnabled and "ON" or "OFF")
+        espBtn.BackgroundColor3 = settings.espEnabled and Color3.fromRGB(155, 80, 255) or Color3.fromRGB(90, 70, 120)
+        tracerBtn.Text = "Tracers: " .. (settings.tracerEnabled and "ON" or "OFF")
+        tracerBtn.BackgroundColor3 = settings.tracerEnabled and Color3.fromRGB(80, 200, 120) or Color3.fromRGB(70, 100, 90)
+        highlightBtn.Text = "Highlight: " .. (settings.highlightEnabled and "ON" or "OFF")
+        highlightBtn.BackgroundColor3 = settings.highlightEnabled and Color3.fromRGB(255, 80, 120) or Color3.fromRGB(120, 60, 70)
+        nameBtn.Text = "Names: " .. (settings.nameEspEnabled and "ON" or "OFF")
+        nameBtn.BackgroundColor3 = settings.nameEspEnabled and Color3.fromRGB(110, 120, 230) or Color3.fromRGB(80, 80, 130)
+        hideNameBtn.Text = "Hide Me: " .. (settings.hideLocalNameEnabled and "ON" or "OFF")
+        hideNameBtn.BackgroundColor3 = settings.hideLocalNameEnabled and Color3.fromRGB(255, 90, 120) or Color3.fromRGB(120, 70, 90)
+        weaponBtn.Text = "Weapon: " .. (settings.weaponEspEnabled and "ON" or "OFF")
+        weaponBtn.BackgroundColor3 = settings.weaponEspEnabled and Color3.fromRGB(255, 150, 60) or Color3.fromRGB(120, 90, 70)
+        fovLabel.Text = "FOV: " .. settings.FOV
+        fovFill.Size = UDim2.new((settings.FOV - settings.FOVMin) / (settings.FOVMax - settings.FOVMin), 0, 1, 0)
+        fovHandle.Position = UDim2.new((settings.FOV - settings.FOVMin) / (settings.FOVMax - settings.FOVMin), -8, 0.5, -8)
+    end
+
+    aimBtn.MouseButton1Click:Connect(function()
+        settings.aimEnabled = not settings.aimEnabled
+        updateGuiButtons()
+    end)
+
+    wallBtn.MouseButton1Click:Connect(function()
+        settings.wallCheckEnabled = not settings.wallCheckEnabled
+        updateGuiButtons()
+    end)
+
+    smoothBtn.MouseButton1Click:Connect(function()
+        settings.aimSmoothEnabled = not settings.aimSmoothEnabled
+        updateGuiButtons()
+    end)
+
+    espBtn.MouseButton1Click:Connect(function()
+        settings.espEnabled = not settings.espEnabled
+        updateGuiButtons()
+    end)
+
+    tracerBtn.MouseButton1Click:Connect(function()
+        settings.tracerEnabled = not settings.tracerEnabled
+        updateGuiButtons()
+    end)
+
+    highlightBtn.MouseButton1Click:Connect(function()
+        settings.highlightEnabled = not settings.highlightEnabled
+        updateGuiButtons()
+    end)
+
+    nameBtn.MouseButton1Click:Connect(function()
+        settings.nameEspEnabled = not settings.nameEspEnabled
+        updateGuiButtons()
+    end)
+
+    hideNameBtn.MouseButton1Click:Connect(function()
+        settings.hideLocalNameEnabled = not settings.hideLocalNameEnabled
+        updateGuiButtons()
+    end)
+
+    weaponBtn.MouseButton1Click:Connect(function()
+        settings.weaponEspEnabled = not settings.weaponEspEnabled
+        updateGuiButtons()
+    end)
+
+    saveBtn.MouseButton1Click:Connect(function()
+        saveConfig()
+        saveBtn.Text = "Saved"
+        task.delay(1, function()
+            saveBtn.Text = "Save Config"
+        end)
+    end)
+
+    aimTabBtn.MouseButton1Click:Connect(function()
+        switchTab("Aimbot")
+    end)
+
+    espTabBtn.MouseButton1Click:Connect(function()
+        switchTab("ESP")
+    end)
+
+    miscTabBtn.MouseButton1Click:Connect(function()
+        switchTab("Misc")
+    end)
+
+    joinLowPopBtn.MouseButton1Click:Connect(function()
+        joinLowPopBtn.Text = "Joining..."
+        local success = joinLowPopulationServer()
+        if not success then
+            joinLowPopBtn.Text = "No Low Pop Server"
+            task.delay(1.2, function()
+                joinLowPopBtn.Text = "Join Low Pop Server"
+            end)
+        else
+            task.delay(1.2, function()
+                joinLowPopBtn.Text = "Join Low Pop Server"
+            end)
+        end
+    end)
+
+    collapseBtn.MouseButton1Click:Connect(function()
+        setCollapsed(not collapsed)
+    end)
+
+    setCollapsed(false)
+    switchTab("Aimbot")
+    updateGuiButtons()
+
+    local function setFovFromPosition(x)
+        local relative = math.clamp((x - fovTrack.AbsolutePosition.X) / fovTrack.AbsoluteSize.X, 0, 1)
+        settings.FOV = math.clamp(math.floor(settings.FOVMin + relative * (settings.FOVMax - settings.FOVMin)), settings.FOVMin, settings.FOVMax)
+        updateGuiButtons()
+    end
+
+    fovTrack.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliderDragging = true
+            setFovFromPosition(UserInputService:GetMouseLocation().X)
+        end
+    end)
+
+    fovTrack.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliderDragging = false
+        end
+    end)
+
+    fovHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliderDragging = true
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if sliderDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            setFovFromPosition(UserInputService:GetMouseLocation().X)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            sliderDragging = false
+        end
+    end)
+
+    title.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragActive = true
+            dragStartMouse = UserInputService:GetMouseLocation()
+            dragStartPos = frame.Position
+        end
+    end)
+
+    title.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragActive = false
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragActive and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local current = UserInputService:GetMouseLocation()
+            local delta = current - dragStartMouse
+            frame.Position = UDim2.new(
+                dragStartPos.X.Scale,
+                dragStartPos.X.Offset + delta.X,
+                dragStartPos.Y.Scale,
+                dragStartPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    return ui, frame, updateGuiButtons
+end
+
+local Gui, MainFrame, updateGui = createGui()
+updateGui()
+
+local function isEnemy(player)
+    if not player or player == LocalPlayer then
+        return false
+    end
+    if LocalPlayer.Team and player.Team and LocalPlayer.Team ~= player.Team then
+        return true
+    end
+    return LocalPlayer.Team == nil or player.Team == nil
+end
+
+local function getAimTargetPart(character)
+    if not character then
+        return nil
+    end
+    return character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or character:FindFirstChild("Head")
+end
+
+local function isVisible(part)
+    if not part then
+        return true
+    end
+    local cam = getCamera()
+    if not cam then
+        return true
+    end
+    local origin = cam.CFrame.Position
+    local direction = part.Position - origin
+    local distance = math.clamp(direction.Magnitude, 1, settings.maxDistance)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    params.FilterDescendantsInstances = { LocalPlayer.Character, cam }
+    local result = workspace:Raycast(origin, direction.Unit * distance, params)
+    return not result or result.Instance == part or result.Instance:IsDescendantOf(part.Parent)
+end
+
+local function createHighlight(character)
+    if highlights[character] then
+        return
+    end
+    local highlight = Instance.new("Highlight")
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.FillColor = Color3.fromRGB(255, 120, 120)
+    highlight.OutlineColor = Color3.fromRGB(255, 180, 80)
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent = character
+    highlights[character] = highlight
+end
+
+local function removeHighlight(character)
+    local highlight = highlights[character]
+    if highlight then
+        highlight:Destroy()
+        highlights[character] = nil
+    end
+end
+
+local boxLines = {}
+local function createBox(character)
+    if boxLines[character] then
+        return
+    end
+    local box = createDrawing("Square")
+    if not box then
+        return
+    end
+    box.Color = Color3.fromRGB(255, 255, 255)
+    box.Thickness = 2
+    box.Transparency = 0.7
+    box.Filled = false
+    box.Visible = false
+    boxLines[character] = box
+end
+
+local function removeBox(character)
+    local box = boxLines[character]
+    if box then
+        box:Remove()
+        boxLines[character] = nil
+    end
+end
+
+local function getEquippedToolName(player)
+    local character = player and player.Character
+    if not character then
+        return nil
+    end
+    local tool = character:FindFirstChildOfClass("Tool")
+    return tool and tool.Name or nil
+end
+
+local function createNameTag(player, character)
+        if not character then
+            return
+        end
+
+        local head = character:FindFirstChild("Head")
+        if not head then
+            return
+        end
+
+        local billboard = nameTags[character]
+        local label
+        if billboard then
+            label = billboard:FindFirstChildOfClass("TextLabel")
+        else
+            billboard = Instance.new("BillboardGui")
+            billboard.Name = "NameEsp"
+            billboard.Adornee = head
+            billboard.AlwaysOnTop = true
+            billboard.Size = UDim2.new(0, 140, 0, 30)
+            billboard.StudsOffset = Vector3.new(0, 2.2, 0)
+            billboard.Parent = Gui
+
+            label = Instance.new("TextLabel")
+            label.Size = UDim2.new(1, 0, 1, 0)
+            label.BackgroundTransparency = 1
+            label.TextColor3 = Color3.new(1, 1, 1)
+            label.TextStrokeTransparency = 0
+            label.TextScaled = true
+            label.Font = Enum.Font.GothamBold
+            label.Parent = billboard
+
+            nameTags[character] = billboard
+        end
+
+        local weaponName = getEquippedToolName(player)
+        local labelText = ""
+        if settings.nameEspEnabled then
+            if player == LocalPlayer and settings.hideLocalNameEnabled then
+                labelText = ""
+            else
+                labelText = player.Name
+            end
+        end
+        if settings.weaponEspEnabled and weaponName then
+            if labelText ~= "" then
+                labelText = labelText .. " | " .. weaponName
+            else
+                labelText = weaponName
+            end
+        end
+        label.Text = labelText
+    end
+
+local function removeNameTag(character)
+    local tag = nameTags[character]
+    if tag then
+        tag:Destroy()
+        nameTags[character] = nil
+    end
+end
+
+local function createTracer(character)
+    if tracerLines[character] then
+        return
+    end
+    local line = createDrawing("Line")
+    if not line then
+        return
+    end
+    line.Color = Color3.fromRGB(255, 255, 255)
+    line.Thickness = 2
+    line.Transparency = 0.7
+    line.Visible = false
+    tracerLines[character] = line
+end
+
+local function removeTracer(character)
+    local line = tracerLines[character]
+    if line then
+        line:Remove()
+        tracerLines[character] = nil
+    end
+end
+
+local function clearPlayerVisuals(player, character)
+    if not character then
+        return
+    end
+    removeHighlight(character)
+    removeNameTag(character)
+    removeTracer(character)
+    removeBox(character)
+end
+
+local function refreshPlayerEsp(player)
+    local character = player and player.Character
+    if not character then
+        return
+    end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then
+        clearPlayerVisuals(player, character)
+        return
+    end
+    task.defer(function()
+        updateEsp()
+    end)
+end
+
+local function connectPlayerLifecycle(player)
+    if playerConnections[player] then
+        return
+    end
+
+    local connections = {}
+
+    connections.characterAdded = player.CharacterAdded:Connect(function(character)
+        local humanoid = character:WaitForChild("Humanoid", 5)
+        if humanoid then
+            humanoid.Died:Connect(function()
+                clearPlayerVisuals(player, character)
+                task.defer(updateEsp)
+            end)
+        end
+
+        task.defer(function()
+            refreshPlayerEsp(player)
+        end)
+    end)
+
+    connections.characterRemoving = player.CharacterRemoving:Connect(function(character)
+        clearPlayerVisuals(player, character)
+        task.defer(updateEsp)
+    end)
+
+    playerConnections[player] = connections
+end
+
+local function disconnectPlayerLifecycle(player)
+    local connections = playerConnections[player]
+    if not connections then
+        return
+    end
+
+    for _, conn in pairs(connections) do
+        if conn then
+            conn:Disconnect()
+        end
+    end
+    playerConnections[player] = nil
+end
+
+local function updateEsp()
+    local cam = getCamera()
+    if not cam then
+        return
+    end
+
+    local activePlayers = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if isEnemy(player) then
+            local character = player.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            if character and humanoid and humanoid.Health > 0 then
+                activePlayers[character] = player
+                if settings.highlightEnabled then
+                    createHighlight(character)
+                else
+                    removeHighlight(character)
+                end
+                if settings.boxEnabled then
+                    createBox(character)
+                else
+                    removeBox(character)
+                end
+                if settings.nameEspEnabled or settings.weaponEspEnabled then
+                    createNameTag(player, character)
+                else
+                    removeNameTag(character)
+                end
+                if settings.tracerEnabled then
+                    createTracer(character)
+                else
+                    removeTracer(character)
+                end
+            else
+                clearPlayerVisuals(nil, character)
+            end
+        else
+            local character = player.Character
+            if character then
+                clearPlayerVisuals(nil, character)
+            end
+        end
+    end
+
+    for character in pairs(tracerLines) do
+        if not activePlayers[character] then
+            clearPlayerVisuals(nil, character)
+        end
+    end
+
+    for character, line in pairs(tracerLines) do
+        local player = activePlayers[character]
+        if player and character.PrimaryPart then
+            local head = character:FindFirstChild("Head")
+            local position = head and head.Position or character.PrimaryPart.Position
+            local screenPos, onScreen = cam:WorldToViewportPoint(position)
+            if onScreen then
+                line.From = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y)
+                line.To = Vector2.new(screenPos.X, screenPos.Y)
+                line.Visible = true
+                line.Color = settings.espEnabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(180, 180, 180)
+
+                local box = boxLines[character]
+                if box and settings.boxEnabled then
+                    local root = character.PrimaryPart or character:FindFirstChild("HumanoidRootPart")
+                    local head = character:FindFirstChild("Head")
+                    if root and head then
+                        local topPos = cam:WorldToViewportPoint(head.Position + Vector3.new(0, 0.6, 0))
+                        local bottomPos = cam:WorldToViewportPoint(root.Position - Vector3.new(0, 3.0, 0))
+                        local height = math.max(40, math.abs(topPos.Y - bottomPos.Y))
+                        local width = math.max(24, height * 0.5)
+                        local centerX = (topPos.X + bottomPos.X) / 2
+                        local topY = math.min(topPos.Y, bottomPos.Y)
+                        box.Size = Vector2.new(width, height)
+                        box.Position = Vector2.new(centerX - width / 2, topY)
+                        box.Visible = true
+                    else
+                        box.Visible = false
+                    end
+                elseif box then
+                    box.Visible = false
+                end
+            else
+                line.Visible = false
+                local box = boxLines[character]
+                if box then
+                    box.Visible = false
+                end
+            end
+        else
+            line.Visible = false
+        end
+    end
+end
+
+local function getClosestTarget()
+    local cam = getCamera()
+    if not cam then
+        return nil
+    end
+
+    local viewport = cam.ViewportSize
+    local center = Vector2.new(viewport.X / 2, viewport.Y / 2)
+    local closest, bestDistance = nil, settings.FOV
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if isEnemy(player) then
+            local character = player.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            if character and humanoid and humanoid.Health > 0 then
+                local targetPart = getAimTargetPart(character)
+                if targetPart and ((not settings.wallCheckEnabled) or isVisible(targetPart)) then
+                    local screenPos, onScreen = cam:WorldToViewportPoint(targetPart.Position)
+                    if onScreen then
+                        local distance = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                        if distance <= settings.FOV and distance < bestDistance then
+                            bestDistance = distance
+                            closest = targetPart
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local aiming = false
+
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        aiming = true
+    end
+    if input.KeyCode == Enum.KeyCode.RightControl then
+        settings.guiVisible = not settings.guiVisible
+        MainFrame.Visible = settings.guiVisible
+    end
+    if gameProcessedEvent then
+        return
+    end
+    if input.KeyCode == Enum.KeyCode.T then
+        settings.aimEnabled = not settings.aimEnabled
+        updateGui()
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton2 then
+        aiming = false
+    end
+end)
+
+RunService.RenderStepped:Connect(function()
+    local cam = getCamera()
+    if cam and fovCircle then
+        fovCircle.Visible = settings.aimEnabled
+        fovCircle.Radius = settings.FOV
+        fovCircle.Position = centerPoint()
+    end
+    updateEsp()
+
+    if settings.aimEnabled and aiming then
+        local target = getClosestTarget()
+        if target and cam then
+            local origin = cam.CFrame.Position
+            local destination = target.Position
+            local lookAt = CFrame.lookAt(origin, destination)
+            if settings.aimSmoothEnabled then
+                cam.CFrame = cam.CFrame:Lerp(lookAt, settings.smoothness)
+            else
+                cam.CFrame = lookAt
+            end
+        end
+    end
+end)
+
+--- Cleanup old objects if needed
+for _, player in ipairs(Players:GetPlayers()) do
+    connectPlayerLifecycle(player)
+end
+
+Players.PlayerAdded:Connect(function(player)
+    connectPlayerLifecycle(player)
+end)
+
+Players.PlayerRemoving:Connect(function(player)
+    disconnectPlayerLifecycle(player)
+    local character = player.Character
+    if character then
+        clearPlayerVisuals(player, character)
+    end
+end)
