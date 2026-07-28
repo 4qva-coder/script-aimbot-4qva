@@ -792,7 +792,8 @@ local function getAimTargetPart(character)
     if not character then
         return nil
     end
-    return character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso") or character:FindFirstChild("Head")
+    -- Prefer the head for more accurate aiming; fall back to root/torso if head not present
+    return character:FindFirstChild("Head") or character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
 end
 
 local function isVisible(part)
