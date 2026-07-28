@@ -83,6 +83,11 @@ local dragActive = false
 local dragStartMouse
 local dragStartPos
 local playerConnections = {}
+local noclipEnabled = false
+local noclipConn = nil
+local antiAfkEnabled = false
+local antiAfkConn = nil
+local VirtualUser = game:GetService("VirtualUser")
 
 local function getCamera()
     return workspace.CurrentCamera
@@ -112,37 +117,7 @@ if fovCircle then
     fovCircle.Visible = settings.aimEnabled
 end
 
-local function joinLowPopulationServer()
-    local ok, servers = pcall(function()
-        return TeleportService:GetServerList(game.PlaceId)
-    end)
-
-    if not ok or type(servers) ~= "table" or #servers == 0 then
-        return false
-    end
-
-    table.sort(servers, function(a, b)
-        local pa = a and (a.playerCount or a.PlayerCount or 0) or 999
-        local pb = b and (b.playerCount or b.PlayerCount or 0) or 999
-        return pa < pb
-    end)
-
-    for _, server in ipairs(servers) do
-        local serverId = server and (server.id or server.Id or server.serverId or server.ServerId)
-        local playerCount = server and (server.playerCount or server.PlayerCount or 0)
-        local maxPlayers = server and (server.maxPlayers or server.MaxPlayers or 999)
-        if serverId and playerCount < maxPlayers then
-            local success = pcall(function()
-                TeleportService:TeleportToPlaceInstance(game.PlaceId, serverId, LocalPlayer)
-            end)
-            if success then
-                return true
-            end
-        end
-    end
-
-    return false
-end
+-- joinLowPopulationServer removed per user request; misc features added below
 
 local function createGui()
     local ui = Instance.new("ScreenGui")
@@ -201,7 +176,7 @@ local function createGui()
 
     local aimTabBtn = Instance.new("TextButton")
     aimTabBtn.Parent = tabBar
-    aimTabBtn.Size = UDim2.new(0.48, 0, 1, 0)
+    aimTabBtn.Size = UDim2.new(0.32, 0, 1, 0)
     aimTabBtn.Position = UDim2.new(0, 0, 0, 0)
     aimTabBtn.BackgroundColor3 = Color3.fromRGB(45, 155, 245)
     aimTabBtn.BorderSizePixel = 0
@@ -215,7 +190,7 @@ local function createGui()
 
     local espTabBtn = Instance.new("TextButton")
     espTabBtn.Parent = tabBar
-    espTabBtn.Size = UDim2.new(0.31, 0, 1, 0)
+    espTabBtn.Size = UDim2.new(0.32, 0, 1, 0)
     espTabBtn.Position = UDim2.new(0.34, 0, 0, 0)
     espTabBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
     espTabBtn.BorderSizePixel = 0
@@ -229,8 +204,8 @@ local function createGui()
 
     local miscTabBtn = Instance.new("TextButton")
     miscTabBtn.Parent = tabBar
-    miscTabBtn.Size = UDim2.new(0.31, 0, 1, 0)
-    miscTabBtn.Position = UDim2.new(0.67, 0, 0, 0)
+    miscTabBtn.Size = UDim2.new(0.32, 0, 1, 0)
+    miscTabBtn.Position = UDim2.new(0.68, 0, 0, 0)
     miscTabBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
     miscTabBtn.BorderSizePixel = 0
     miscTabBtn.Text = "Misc"
@@ -246,6 +221,10 @@ local function createGui()
     aimPanel.Size = UDim2.new(1, -20, 0, 360)
     aimPanel.Position = UDim2.new(0, 10, 0, 100)
     aimPanel.BackgroundTransparency = 1
+    local aimList = Instance.new("UIListLayout")
+    aimList.Parent = aimPanel
+    aimList.SortOrder = Enum.SortOrder.LayoutOrder
+    aimList.Padding = UDim.new(0, 12)
 
     local espPanel = Instance.new("Frame")
     espPanel.Parent = frame
@@ -253,6 +232,10 @@ local function createGui()
     espPanel.Position = UDim2.new(0, 10, 0, 100)
     espPanel.BackgroundTransparency = 1
     espPanel.Visible = false
+    local espList = Instance.new("UIListLayout")
+    espList.Parent = espPanel
+    espList.SortOrder = Enum.SortOrder.LayoutOrder
+    espList.Padding = UDim.new(0, 12)
 
     local miscPanel = Instance.new("Frame")
     miscPanel.Parent = frame
@@ -260,12 +243,16 @@ local function createGui()
     miscPanel.Position = UDim2.new(0, 10, 0, 100)
     miscPanel.BackgroundTransparency = 1
     miscPanel.Visible = false
+    local miscList = Instance.new("UIListLayout")
+    miscList.Parent = miscPanel
+    miscList.SortOrder = Enum.SortOrder.LayoutOrder
+    miscList.Padding = UDim.new(0, 12)
 
-    local function createButton(parent, positionY, text, color)
+    local function createButton(parent, positionIndex, text, color)
         local btn = Instance.new("TextButton")
         btn.Parent = parent
         btn.Size = UDim2.new(1, -8, 0, 34)
-        btn.Position = UDim2.new(0, 4, 0, positionY)
+        btn.LayoutOrder = positionIndex
         btn.BackgroundColor3 = color
         btn.BorderSizePixel = 0
         btn.Text = text
@@ -278,25 +265,28 @@ local function createGui()
         return btn
     end
 
-    local aimBtn = createButton(aimPanel, 10, "Aim: ON", Color3.fromRGB(45, 155, 245))
-    local wallBtn = createButton(aimPanel, 54, "WallCheck: OFF", Color3.fromRGB(235, 120, 60))
-    local smoothBtn = createButton(aimPanel, 98, "Smooth: ON", Color3.fromRGB(130, 170, 240))
+    local aimBtn = createButton(aimPanel, 1, "Aim: ON", Color3.fromRGB(45, 155, 245))
+    local wallBtn = createButton(aimPanel, 2, "WallCheck: OFF", Color3.fromRGB(235, 120, 60))
+    local smoothBtn = createButton(aimPanel, 3, "Smooth: ON", Color3.fromRGB(130, 170, 240))
 
-    local espBtn = createButton(espPanel, 10, "ESP: ON", Color3.fromRGB(155, 80, 255))
-    local tracerBtn = createButton(espPanel, 54, "Tracers: ON", Color3.fromRGB(80, 200, 120))
-    local highlightBtn = createButton(espPanel, 98, "Highlight: ON", Color3.fromRGB(255, 80, 120))
-    local nameBtn = createButton(espPanel, 142, "Names: ON", Color3.fromRGB(110, 120, 230))
-    local hideNameBtn = createButton(espPanel, 186, "Hide Me: OFF", Color3.fromRGB(255, 110, 140))
-    local weaponBtn = createButton(espPanel, 230, "Weapon: OFF", Color3.fromRGB(255, 150, 60))
+    local espBtn = createButton(espPanel, 1, "ESP: ON", Color3.fromRGB(155, 80, 255))
+    local tracerBtn = createButton(espPanel, 2, "Tracers: ON", Color3.fromRGB(80, 200, 120))
+    local highlightBtn = createButton(espPanel, 3, "Highlight: ON", Color3.fromRGB(255, 80, 120))
+    local nameBtn = createButton(espPanel, 4, "Names: ON", Color3.fromRGB(110, 120, 230))
+    local hideNameBtn = createButton(espPanel, 5, "Hide Me: OFF", Color3.fromRGB(255, 110, 140))
+    local weaponBtn = createButton(espPanel, 6, "Weapon: OFF", Color3.fromRGB(255, 150, 60))
 
-    local saveBtn = createButton(espPanel, 300, "Save Config", Color3.fromRGB(90, 190, 90))
+    local saveBtn = createButton(espPanel, 7, "Save Config", Color3.fromRGB(90, 190, 90))
 
-    local joinLowPopBtn = createButton(miscPanel, 10, "Join Low Pop Server", Color3.fromRGB(80, 180, 255))
+    local toggleGuiBtn = createButton(miscPanel, 1, settings.guiVisible and "Hide GUI" or "Show GUI", Color3.fromRGB(120, 120, 120))
+    local antiAfkBtn = createButton(miscPanel, 2, "Anti-AFK: OFF", Color3.fromRGB(80, 180, 120))
+    local noclipBtn = createButton(miscPanel, 3, "Noclip: OFF", Color3.fromRGB(200, 120, 255))
+    local rejoinBtn = createButton(miscPanel, 4, "Rejoin", Color3.fromRGB(255, 120, 80))
 
     local fovLabel = Instance.new("TextLabel")
     fovLabel.Parent = aimPanel
     fovLabel.Size = UDim2.new(1, -8, 0, 18)
-    fovLabel.Position = UDim2.new(0, 4, 0, 160)
+    fovLabel.LayoutOrder = 4
     fovLabel.BackgroundTransparency = 1
     fovLabel.TextColor3 = Color3.new(1, 1, 1)
     fovLabel.Font = Enum.Font.Gotham
@@ -307,7 +297,7 @@ local function createGui()
     local fovTrack = Instance.new("Frame")
     fovTrack.Parent = aimPanel
     fovTrack.Size = UDim2.new(1, -8, 0, 8)
-    fovTrack.Position = UDim2.new(0, 4, 0, 188)
+    fovTrack.LayoutOrder = 5
     fovTrack.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
     fovTrack.BorderSizePixel = 0
     local fovTrackCorner = Instance.new("UICorner")
@@ -335,7 +325,7 @@ local function createGui()
     handleCorner.CornerRadius = UDim.new(1, 0)
     handleCorner.Parent = fovHandle
 
-    local contentItems = {tabBar, aimTabBtn, espTabBtn, miscTabBtn, aimPanel, espPanel, miscPanel, saveBtn, fovLabel, fovTrack, fovHandle, joinLowPopBtn}
+    local contentItems = {tabBar, aimTabBtn, espTabBtn, miscTabBtn, aimPanel, espPanel, miscPanel, saveBtn, fovLabel, fovTrack, fovHandle, toggleGuiBtn, antiAfkBtn, noclipBtn, rejoinBtn}
     local collapsed = false
     local activeTab = "Aimbot"
 
@@ -449,17 +439,75 @@ local function createGui()
         switchTab("Misc")
     end)
 
-    joinLowPopBtn.MouseButton1Click:Connect(function()
-        joinLowPopBtn.Text = "Joining..."
-        local success = joinLowPopulationServer()
-        if not success then
-            joinLowPopBtn.Text = "No Low Pop Server"
+    toggleGuiBtn.MouseButton1Click:Connect(function()
+        settings.guiVisible = not settings.guiVisible
+        frame.Visible = settings.guiVisible
+        toggleGuiBtn.Text = settings.guiVisible and "Hide GUI" or "Show GUI"
+    end)
+
+    antiAfkBtn.MouseButton1Click:Connect(function()
+        antiAfkEnabled = not antiAfkEnabled
+        antiAfkBtn.Text = antiAfkEnabled and "Anti-AFK: ON" or "Anti-AFK: OFF"
+        if antiAfkEnabled then
+            antiAfkConn = LocalPlayer.Idled:Connect(function()
+                pcall(function()
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton2(Vector2.new(0,0))
+                end)
+            end)
+        else
+            if antiAfkConn then
+                antiAfkConn:Disconnect()
+                antiAfkConn = nil
+            end
+        end
+    end)
+
+    noclipBtn.MouseButton1Click:Connect(function()
+        noclipEnabled = not noclipEnabled
+        noclipBtn.Text = noclipEnabled and "Noclip: ON" or "Noclip: OFF"
+        if noclipEnabled then
+            noclipConn = RunService.Stepped:Connect(function()
+                local char = LocalPlayer.Character
+                if char then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        else
+            if noclipConn then
+                noclipConn:Disconnect()
+                noclipConn = nil
+            end
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        pcall(function() part.CanCollide = true end)
+                    end
+                end
+            end
+        end
+    end)
+
+    -- Repair (Respawn) button removed
+
+    rejoinBtn.MouseButton1Click:Connect(function()
+        rejoinBtn.Text = "Rejoining..."
+        local ok = pcall(function()
+            TeleportService:Teleport(game.PlaceId, LocalPlayer)
+        end)
+        if not ok then
+            rejoinBtn.Text = "Failed"
             task.delay(1.2, function()
-                joinLowPopBtn.Text = "Join Low Pop Server"
+                rejoinBtn.Text = "Rejoin"
             end)
         else
             task.delay(1.2, function()
-                joinLowPopBtn.Text = "Join Low Pop Server"
+                rejoinBtn.Text = "Rejoin"
             end)
         end
     end)
