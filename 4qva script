@@ -1,8 +1,10 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
 local TeleportService = game:GetService("TeleportService")
+local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
 
@@ -17,12 +19,19 @@ local settings = {
     hideLocalNameEnabled = false,
     weaponEspEnabled = false,
     aimSmoothEnabled = true,
-    smoothness = 0.22,
+    smoothness = 0.5,
     FOV = 150,
     FOVMin = 50,
     FOVMax = 300,
+    showFovCircle = true,
     maxDistance = 1000,
     guiVisible = true,
+    guiCollapsed = false,
+    keybinds = {
+        aim = "T",
+        esp = "G",
+        minimize = "RightControl",
+    },
 }
 
 local configFileName = "4qva_config.json"
@@ -37,6 +46,9 @@ local function saveConfig()
         if type(value) ~= "function" and type(value) ~= "table" then
             saved[key] = value
         end
+    end
+    if settings.keybinds and type(settings.keybinds) == "table" then
+        saved.keybinds = settings.keybinds
     end
 
     local json = HttpService:JSONEncode(saved)
@@ -67,7 +79,13 @@ local function loadConfig()
     end
 
     for key, value in pairs(data) do
-        if settings[key] ~= nil then
+        if key == "keybinds" and type(value) == "table" and type(settings[key]) == "table" then
+            for bindKey, bindValue in pairs(value) do
+                if settings[key][bindKey] ~= nil then
+                    settings[key][bindKey] = bindValue
+                end
+            end
+        elseif settings[key] ~= nil then
             settings[key] = value
         end
     end
@@ -75,11 +93,12 @@ end
 
 loadConfig()
 
-local highlights = {}
-local nameTags = {}
-local tracerLines = {}
-local sliderDragging = false
-local dragActive = false
+    local highlights = {}
+    local nameTags = {}
+    local tracerLines = {}
+    local sliderDragging = false
+        local fovDragging = false
+    local dragActive = false
 local dragStartMouse
 local dragStartPos
 local playerConnections = {}
@@ -129,14 +148,22 @@ local function createGui()
     frame.Name = "MainFrame"
     frame.Parent = ui
     frame.Size = UDim2.new(0, 300, 0, 520)
-    frame.Position = UDim2.new(0.35, 0, 0.25, 0)
+    frame.AnchorPoint = Vector2.new(0.5, 0)
+    frame.Position = UDim2.new(0.5, 0, 0.25, 0)
     frame.BackgroundColor3 = Color3.fromRGB(10, 10, 10)
     frame.BorderSizePixel = 0
+    frame.Rotation = 0
     frame.Active = true
 
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 18)
     corner.Parent = frame
+    frame.BackgroundColor3 = Color3.fromRGB(12, 12, 12)
+
+    local blurEffect = Lighting:FindFirstChild("AimEspBlur") or Instance.new("BlurEffect")
+    blurEffect.Name = "AimEspBlur"
+    blurEffect.Size = 0
+    blurEffect.Parent = Lighting
 
     local title = Instance.new("TextLabel")
     title.Parent = frame
@@ -174,11 +201,23 @@ local function createGui()
     tabBar.Position = UDim2.new(0, 10, 0, 50)
     tabBar.BackgroundTransparency = 1
 
+    local tabBarPadding = Instance.new("UIPadding")
+    tabBarPadding.Parent = tabBar
+    tabBarPadding.PaddingLeft = UDim.new(0, 10)
+    tabBarPadding.PaddingRight = UDim.new(0, 10)
+
+    local tabBarLayout = Instance.new("UIListLayout")
+    tabBarLayout.Parent = tabBar
+    tabBarLayout.FillDirection = Enum.FillDirection.Horizontal
+    tabBarLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    tabBarLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    tabBarLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    tabBarLayout.Padding = UDim.new(0, 10)
+
     local aimTabBtn = Instance.new("TextButton")
     aimTabBtn.Parent = tabBar
-    aimTabBtn.Size = UDim2.new(0.32, 0, 1, 0)
-    aimTabBtn.Position = UDim2.new(0, 0, 0, 0)
-    aimTabBtn.BackgroundColor3 = Color3.fromRGB(45, 155, 245)
+    aimTabBtn.Size = UDim2.new(0, 80, 1, 0)
+    aimTabBtn.BackgroundColor3 = Color3.fromRGB(145, 95, 255)
     aimTabBtn.BorderSizePixel = 0
     aimTabBtn.Text = "Aimbot"
     aimTabBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -190,9 +229,8 @@ local function createGui()
 
     local espTabBtn = Instance.new("TextButton")
     espTabBtn.Parent = tabBar
-    espTabBtn.Size = UDim2.new(0.32, 0, 1, 0)
-    espTabBtn.Position = UDim2.new(0.34, 0, 0, 0)
-    espTabBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    espTabBtn.Size = UDim2.new(0, 80, 1, 0)
+    espTabBtn.BackgroundColor3 = Color3.fromRGB(145, 95, 255)
     espTabBtn.BorderSizePixel = 0
     espTabBtn.Text = "ESP"
     espTabBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -204,9 +242,8 @@ local function createGui()
 
     local miscTabBtn = Instance.new("TextButton")
     miscTabBtn.Parent = tabBar
-    miscTabBtn.Size = UDim2.new(0.32, 0, 1, 0)
-    miscTabBtn.Position = UDim2.new(0.68, 0, 0, 0)
-    miscTabBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    miscTabBtn.Size = UDim2.new(0, 80, 1, 0)
+    miscTabBtn.BackgroundColor3 = Color3.fromRGB(145, 95, 255)
     miscTabBtn.BorderSizePixel = 0
     miscTabBtn.Text = "Misc"
     miscTabBtn.TextColor3 = Color3.new(1, 1, 1)
@@ -216,44 +253,75 @@ local function createGui()
     miscTabCorner.CornerRadius = UDim.new(0, 10)
     miscTabCorner.Parent = miscTabBtn
 
+    local contentContainer = Instance.new("ScrollingFrame")
+    contentContainer.Parent = frame
+    contentContainer.Size = UDim2.new(1, -20, 0, 360)
+    contentContainer.Position = UDim2.new(0, 10, 0, 100)
+    contentContainer.BackgroundTransparency = 1
+    contentContainer.BorderSizePixel = 0
+    contentContainer.ScrollBarThickness = 2
+    contentContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    contentContainer.CanvasSize = UDim2.new(0, 0, 0, 0)
+    contentContainer.ScrollingDirection = Enum.ScrollingDirection.Y
+
     local aimPanel = Instance.new("Frame")
-    aimPanel.Parent = frame
-    aimPanel.Size = UDim2.new(1, -20, 0, 360)
-    aimPanel.Position = UDim2.new(0, 10, 0, 100)
+    aimPanel.Parent = contentContainer
+    aimPanel.Size = UDim2.new(1, -8, 0, 0)
+    aimPanel.Position = UDim2.new(0, 0, 0, 0)
     aimPanel.BackgroundTransparency = 1
+    aimPanel.AutomaticSize = Enum.AutomaticSize.Y
+    local aimPanelPadding = Instance.new("UIPadding")
+    aimPanelPadding.Parent = aimPanel
+    aimPanelPadding.PaddingLeft = UDim.new(0, 10)
+    aimPanelPadding.PaddingRight = UDim.new(0, 10)
     local aimList = Instance.new("UIListLayout")
     aimList.Parent = aimPanel
     aimList.SortOrder = Enum.SortOrder.LayoutOrder
     aimList.Padding = UDim.new(0, 12)
+    aimList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
     local espPanel = Instance.new("Frame")
-    espPanel.Parent = frame
-    espPanel.Size = UDim2.new(1, -20, 0, 360)
-    espPanel.Position = UDim2.new(0, 10, 0, 100)
+    espPanel.Parent = contentContainer
+    espPanel.Size = UDim2.new(1, -8, 0, 0)
+    espPanel.Position = UDim2.new(0, 0, 0, 0)
     espPanel.BackgroundTransparency = 1
+    espPanel.AutomaticSize = Enum.AutomaticSize.Y
     espPanel.Visible = false
+    local espPanelPadding = Instance.new("UIPadding")
+    espPanelPadding.Parent = espPanel
+    espPanelPadding.PaddingLeft = UDim.new(0, 10)
+    espPanelPadding.PaddingRight = UDim.new(0, 10)
     local espList = Instance.new("UIListLayout")
     espList.Parent = espPanel
     espList.SortOrder = Enum.SortOrder.LayoutOrder
     espList.Padding = UDim.new(0, 12)
+    espList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
     local miscPanel = Instance.new("Frame")
-    miscPanel.Parent = frame
-    miscPanel.Size = UDim2.new(1, -20, 0, 360)
-    miscPanel.Position = UDim2.new(0, 10, 0, 100)
+    miscPanel.Parent = contentContainer
+    miscPanel.Size = UDim2.new(1, -8, 0, 0)
+    miscPanel.Position = UDim2.new(0, 0, 0, 0)
     miscPanel.BackgroundTransparency = 1
+    miscPanel.AutomaticSize = Enum.AutomaticSize.Y
     miscPanel.Visible = false
+    local miscPanelPadding = Instance.new("UIPadding")
+    miscPanelPadding.Parent = miscPanel
+    miscPanelPadding.PaddingLeft = UDim.new(0, 10)
+    miscPanelPadding.PaddingRight = UDim.new(0, 10)
     local miscList = Instance.new("UIListLayout")
     miscList.Parent = miscPanel
     miscList.SortOrder = Enum.SortOrder.LayoutOrder
     miscList.Padding = UDim.new(0, 12)
+    miscList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 
+    local buttonColor = Color3.fromRGB(145, 95, 255)
+    local espButtonColor = Color3.fromRGB(155, 80, 255)
     local function createButton(parent, positionIndex, text, color)
         local btn = Instance.new("TextButton")
         btn.Parent = parent
-        btn.Size = UDim2.new(1, -8, 0, 34)
+        btn.Size = UDim2.new(1, -20, 0, 34)
         btn.LayoutOrder = positionIndex
-        btn.BackgroundColor3 = color
+        btn.BackgroundColor3 = color or buttonColor
         btn.BorderSizePixel = 0
         btn.Text = text
         btn.TextColor3 = Color3.new(1, 1, 1)
@@ -269,24 +337,39 @@ local function createGui()
     local wallBtn = createButton(aimPanel, 2, "WallCheck: OFF", Color3.fromRGB(235, 120, 60))
     local smoothBtn = createButton(aimPanel, 3, "Smooth: ON", Color3.fromRGB(130, 170, 240))
 
-    local espBtn = createButton(espPanel, 1, "ESP: ON", Color3.fromRGB(155, 80, 255))
-    local tracerBtn = createButton(espPanel, 2, "Tracers: ON", Color3.fromRGB(80, 200, 120))
-    local highlightBtn = createButton(espPanel, 3, "Highlight: ON", Color3.fromRGB(255, 80, 120))
-    local nameBtn = createButton(espPanel, 4, "Names: ON", Color3.fromRGB(110, 120, 230))
-    local hideNameBtn = createButton(espPanel, 5, "Hide Me: OFF", Color3.fromRGB(255, 110, 140))
-    local weaponBtn = createButton(espPanel, 6, "Weapon: OFF", Color3.fromRGB(255, 150, 60))
+    local espBtn = createButton(espPanel, 1, "ESP: ON", espButtonColor)
+    local tracerBtn = createButton(espPanel, 2, "Tracers: ON", espButtonColor)
+    local highlightBtn = createButton(espPanel, 3, "Highlight: ON", espButtonColor)
+    local nameBtn = createButton(espPanel, 4, "Names: ON", espButtonColor)
+    local hideNameBtn = createButton(espPanel, 5, "Hide Me: OFF", espButtonColor)
+    local weaponBtn = createButton(espPanel, 6, "Weapon: OFF", espButtonColor)
 
-    local saveBtn = createButton(espPanel, 7, "Save Config", Color3.fromRGB(90, 190, 90))
+    local saveBtn = createButton(espPanel, 7, "Save Config", espButtonColor)
 
     local toggleGuiBtn = createButton(miscPanel, 1, settings.guiVisible and "Hide GUI" or "Show GUI", Color3.fromRGB(120, 120, 120))
     local antiAfkBtn = createButton(miscPanel, 2, "Anti-AFK: OFF", Color3.fromRGB(80, 180, 120))
     local noclipBtn = createButton(miscPanel, 3, "Noclip: OFF", Color3.fromRGB(200, 120, 255))
     local rejoinBtn = createButton(miscPanel, 4, "Rejoin", Color3.fromRGB(255, 120, 80))
 
+    local keybindHeader = Instance.new("TextLabel")
+    keybindHeader.Parent = miscPanel
+    keybindHeader.Size = UDim2.new(1, -8, 0, 18)
+    keybindHeader.LayoutOrder = 5
+    keybindHeader.BackgroundTransparency = 1
+    keybindHeader.TextColor3 = Color3.new(1, 1, 1)
+    keybindHeader.Font = Enum.Font.Gotham
+    keybindHeader.TextSize = 13
+    keybindHeader.Text = "Keybinds"
+    keybindHeader.TextXAlignment = Enum.TextXAlignment.Left
+
+    local keyAimBtn = createButton(miscPanel, 6, "Aim Bind: " .. settings.keybinds.aim, Color3.fromRGB(100, 150, 240))
+    local keyEspBtn = createButton(miscPanel, 7, "ESP Bind: " .. settings.keybinds.esp, Color3.fromRGB(155, 80, 255))
+    local keyMinBtn = createButton(miscPanel, 8, "Hide GUI Bind: " .. settings.keybinds.minimize, Color3.fromRGB(120, 120, 120))
+
     local fovLabel = Instance.new("TextLabel")
     fovLabel.Parent = aimPanel
     fovLabel.Size = UDim2.new(1, -8, 0, 18)
-    fovLabel.LayoutOrder = 4
+    fovLabel.LayoutOrder = 5
     fovLabel.BackgroundTransparency = 1
     fovLabel.TextColor3 = Color3.new(1, 1, 1)
     fovLabel.Font = Enum.Font.Gotham
@@ -297,7 +380,7 @@ local function createGui()
     local fovTrack = Instance.new("Frame")
     fovTrack.Parent = aimPanel
     fovTrack.Size = UDim2.new(1, -8, 0, 8)
-    fovTrack.LayoutOrder = 5
+    fovTrack.LayoutOrder = 6
     fovTrack.BackgroundColor3 = Color3.fromRGB(60, 60, 80)
     fovTrack.BorderSizePixel = 0
     local fovTrackCorner = Instance.new("UICorner")
@@ -317,6 +400,8 @@ local function createGui()
     fovHandle.Parent = fovTrack
     fovHandle.Size = UDim2.new(0, 16, 0, 16)
     fovHandle.Position = UDim2.new((settings.FOV - settings.FOVMin) / (settings.FOVMax - settings.FOVMin), -8, 0.5, -8)
+
+    -- smoothing slider removed; keep `smoothBtn` as a toggle and default smoothness to a medium value
     fovHandle.BackgroundColor3 = Color3.new(1, 1, 1)
     fovHandle.BorderSizePixel = 0
     fovHandle.Text = ""
@@ -325,19 +410,34 @@ local function createGui()
     handleCorner.CornerRadius = UDim.new(1, 0)
     handleCorner.Parent = fovHandle
 
-    local contentItems = {tabBar, aimTabBtn, espTabBtn, miscTabBtn, aimPanel, espPanel, miscPanel, saveBtn, fovLabel, fovTrack, fovHandle, toggleGuiBtn, antiAfkBtn, noclipBtn, rejoinBtn}
-    local collapsed = false
+    local showFovBtn = createButton(aimPanel, 7, "Show FOV: " .. (settings.showFovCircle and "ON" or "OFF"), Color3.fromRGB(155, 80, 255))
+
+    local contentItems = {tabBar, contentContainer}
+    local collapsed = settings.guiCollapsed
+    local fullHidden = false
     local activeTab = "Aimbot"
+
+    local function updateBlur()
+        local targetSize = 0
+        if not fullHidden and not collapsed then
+            targetSize = 24
+        end
+        TweenService:Create(blurEffect, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = targetSize}):Play()
+    end
 
     local function setCollapsed(value)
         collapsed = value
-        for _, item in ipairs(contentItems) do
-            item.Visible = not collapsed
+        settings.guiCollapsed = value
+        if not fullHidden then
+            for _, item in ipairs(contentItems) do
+                item.Visible = not collapsed
+            end
+            frame.Size = collapsed and UDim2.new(0, 300, 0, 44) or UDim2.new(0, 300, 0, 520)
         end
-        frame.Size = collapsed and UDim2.new(0, 300, 0, 54) or UDim2.new(0, 300, 0, 520)
         collapseBtn.Text = collapsed and "v" or "^"
         title.Visible = true
         collapseBtn.Visible = true
+        updateBlur()
     end
 
     local function switchTab(tabName)
@@ -345,9 +445,9 @@ local function createGui()
         aimPanel.Visible = tabName == "Aimbot"
         espPanel.Visible = tabName == "ESP"
         miscPanel.Visible = tabName == "Misc"
-        aimTabBtn.BackgroundColor3 = tabName == "Aimbot" and Color3.fromRGB(45, 155, 245) or Color3.fromRGB(30, 30, 40)
-        espTabBtn.BackgroundColor3 = tabName == "ESP" and Color3.fromRGB(155, 80, 255) or Color3.fromRGB(30, 30, 40)
-        miscTabBtn.BackgroundColor3 = tabName == "Misc" and Color3.fromRGB(80, 180, 255) or Color3.fromRGB(30, 30, 40)
+        aimTabBtn.BackgroundColor3 = tabName == "Aimbot" and Color3.fromRGB(165, 125, 255) or Color3.fromRGB(125, 65, 220)
+        espTabBtn.BackgroundColor3 = tabName == "ESP" and Color3.fromRGB(165, 125, 255) or Color3.fromRGB(125, 65, 220)
+        miscTabBtn.BackgroundColor3 = tabName == "Misc" and Color3.fromRGB(165, 125, 255) or Color3.fromRGB(125, 65, 220)
     end
 
     local function updateGuiButtons()
@@ -360,22 +460,51 @@ local function createGui()
         espBtn.Text = "ESP: " .. (settings.espEnabled and "ON" or "OFF")
         espBtn.BackgroundColor3 = settings.espEnabled and Color3.fromRGB(155, 80, 255) or Color3.fromRGB(90, 70, 120)
         tracerBtn.Text = "Tracers: " .. (settings.tracerEnabled and "ON" or "OFF")
-        tracerBtn.BackgroundColor3 = settings.tracerEnabled and Color3.fromRGB(80, 200, 120) or Color3.fromRGB(70, 100, 90)
+        tracerBtn.BackgroundColor3 = settings.tracerEnabled and Color3.fromRGB(155, 80, 255) or Color3.fromRGB(90, 70, 120)
         highlightBtn.Text = "Highlight: " .. (settings.highlightEnabled and "ON" or "OFF")
-        highlightBtn.BackgroundColor3 = settings.highlightEnabled and Color3.fromRGB(255, 80, 120) or Color3.fromRGB(120, 60, 70)
+        highlightBtn.BackgroundColor3 = settings.highlightEnabled and Color3.fromRGB(155, 80, 255) or Color3.fromRGB(90, 70, 120)
         nameBtn.Text = "Names: " .. (settings.nameEspEnabled and "ON" or "OFF")
-        nameBtn.BackgroundColor3 = settings.nameEspEnabled and Color3.fromRGB(110, 120, 230) or Color3.fromRGB(80, 80, 130)
+        nameBtn.BackgroundColor3 = settings.nameEspEnabled and Color3.fromRGB(155, 80, 255) or Color3.fromRGB(90, 70, 120)
         hideNameBtn.Text = "Hide Me: " .. (settings.hideLocalNameEnabled and "ON" or "OFF")
-        hideNameBtn.BackgroundColor3 = settings.hideLocalNameEnabled and Color3.fromRGB(255, 90, 120) or Color3.fromRGB(120, 70, 90)
+        hideNameBtn.BackgroundColor3 = settings.hideLocalNameEnabled and Color3.fromRGB(155, 80, 255) or Color3.fromRGB(90, 70, 120)
         weaponBtn.Text = "Weapon: " .. (settings.weaponEspEnabled and "ON" or "OFF")
-        weaponBtn.BackgroundColor3 = settings.weaponEspEnabled and Color3.fromRGB(255, 150, 60) or Color3.fromRGB(120, 90, 70)
+        weaponBtn.BackgroundColor3 = settings.weaponEspEnabled and Color3.fromRGB(155, 80, 255) or Color3.fromRGB(90, 70, 120)
         fovLabel.Text = "FOV: " .. settings.FOV
         fovFill.Size = UDim2.new((settings.FOV - settings.FOVMin) / (settings.FOVMax - settings.FOVMin), 0, 1, 0)
         fovHandle.Position = UDim2.new((settings.FOV - settings.FOVMin) / (settings.FOVMax - settings.FOVMin), -8, 0.5, -8)
+        -- smoothing slider removed; show smoothing value on `smoothBtn` instead
+        smoothBtn.Text = "Smooth: " .. (settings.aimSmoothEnabled and "ON" or "OFF")
+        if showFovBtn then
+            showFovBtn.Text = "Show FOV: " .. (settings.showFovCircle and "ON" or "OFF")
+            showFovBtn.BackgroundColor3 = settings.showFovCircle and Color3.fromRGB(155, 80, 255) or Color3.fromRGB(90, 70, 120)
+        end
+        -- keybinds
+        if keyAimBtn then keyAimBtn.Text = "Aim Bind: " .. (settings.keybinds and settings.keybinds.aim or "T") end
+        if keyEspBtn then keyEspBtn.Text = "ESP Bind: " .. (settings.keybinds and settings.keybinds.esp or "G") end
+        if keyMinBtn then keyMinBtn.Text = "Hide GUI Bind: " .. (settings.keybinds and settings.keybinds.minimize or "RightControl") end
     end
 
     aimBtn.MouseButton1Click:Connect(function()
         settings.aimEnabled = not settings.aimEnabled
+        updateGuiButtons()
+    end)
+
+    espBtn.MouseButton1Click:Connect(function()
+        settings.espEnabled = not settings.espEnabled
+        if not settings.espEnabled then
+            for character in pairs(highlights) do
+                removeHighlight(character)
+            end
+            for character in pairs(nameTags) do
+                removeNameTag(character)
+            end
+            for character in pairs(tracerLines) do
+                removeTracer(character)
+            end
+            for character in pairs(boxLines) do
+                removeBox(character)
+            end
+        end
         updateGuiButtons()
     end)
 
@@ -389,11 +518,6 @@ local function createGui()
         updateGuiButtons()
     end)
 
-    espBtn.MouseButton1Click:Connect(function()
-        settings.espEnabled = not settings.espEnabled
-        updateGuiButtons()
-    end)
-
     tracerBtn.MouseButton1Click:Connect(function()
         settings.tracerEnabled = not settings.tracerEnabled
         updateGuiButtons()
@@ -401,6 +525,11 @@ local function createGui()
 
     highlightBtn.MouseButton1Click:Connect(function()
         settings.highlightEnabled = not settings.highlightEnabled
+        updateGuiButtons()
+    end)
+
+    showFovBtn.MouseButton1Click:Connect(function()
+        settings.showFovCircle = not settings.showFovCircle
         updateGuiButtons()
     end)
 
@@ -439,11 +568,29 @@ local function createGui()
         switchTab("Misc")
     end)
 
+    local originalFramePosition = frame.Position
+
+    local function setGuiVisible(visible)
+        settings.guiVisible = visible
+        fullHidden = not visible
+        toggleGuiBtn.Text = visible and "Hide GUI" or "Show GUI"
+        if visible then
+            frame.Visible = true
+            for _, item in ipairs(contentItems) do
+                item.Visible = not collapsed
+            end
+            frame.Size = collapsed and UDim2.new(0, 300, 0, 44) or UDim2.new(0, 300, 0, 520)
+        else
+            frame.Visible = false
+        end
+        updateBlur()
+    end
+
     toggleGuiBtn.MouseButton1Click:Connect(function()
-        settings.guiVisible = not settings.guiVisible
-        frame.Visible = settings.guiVisible
-        toggleGuiBtn.Text = settings.guiVisible and "Hide GUI" or "Show GUI"
+        setGuiVisible(not settings.guiVisible)
     end)
+
+    
 
     antiAfkBtn.MouseButton1Click:Connect(function()
         antiAfkEnabled = not antiAfkEnabled
@@ -493,8 +640,6 @@ local function createGui()
         end
     end)
 
-    -- Repair (Respawn) button removed
-
     rejoinBtn.MouseButton1Click:Connect(function()
         rejoinBtn.Text = "Rejoining..."
         local ok = pcall(function()
@@ -516,9 +661,44 @@ local function createGui()
         setCollapsed(not collapsed)
     end)
 
-    setCollapsed(false)
-    switchTab("Aimbot")
-    updateGuiButtons()
+    local rebinding = false
+    local function startRebind(btn, keyName)
+        if rebinding then return end
+        rebinding = true
+        btn.Text = "Press a key..."
+        local conn
+        conn = UserInputService.InputBegan:Connect(function(input, processed)
+            if processed then return end
+            local keyStr = nil
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                keyStr = "MouseButton1"
+            elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
+                keyStr = "MouseButton2"
+            elseif input.KeyCode and input.KeyCode ~= Enum.KeyCode.Unknown then
+                keyStr = tostring(input.KeyCode):gsub("Enum.KeyCode.", "")
+            end
+            if keyStr then
+                settings.keybinds[keyName] = keyStr
+                saveConfig()
+                updateGuiButtons()
+            else
+                btn.Text = "Invalid"
+                task.delay(1, function() updateGuiButtons() end)
+            end
+            rebinding = false
+            conn:Disconnect()
+        end)
+    end
+
+    keyAimBtn.MouseButton1Click:Connect(function()
+        startRebind(keyAimBtn, "aim")
+    end)
+    keyEspBtn.MouseButton1Click:Connect(function()
+        startRebind(keyEspBtn, "esp")
+    end)
+    keyMinBtn.MouseButton1Click:Connect(function()
+        startRebind(keyMinBtn, "minimize")
+    end)
 
     local function setFovFromPosition(x)
         local relative = math.clamp((x - fovTrack.AbsolutePosition.X) / fovTrack.AbsoluteSize.X, 0, 1)
@@ -528,32 +708,34 @@ local function createGui()
 
     fovTrack.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            sliderDragging = true
+            fovDragging = true
             setFovFromPosition(UserInputService:GetMouseLocation().X)
         end
     end)
 
     fovTrack.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            sliderDragging = false
+            fovDragging = false
         end
     end)
 
     fovHandle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            sliderDragging = true
+            fovDragging = true
         end
     end)
 
+    -- smoothing slider input removed
+
     UserInputService.InputChanged:Connect(function(input)
-        if sliderDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        if fovDragging and input.UserInputType == Enum.UserInputType.MouseMovement then
             setFovFromPosition(UserInputService:GetMouseLocation().X)
         end
     end)
 
     UserInputService.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            sliderDragging = false
+            fovDragging = false
         end
     end)
 
@@ -584,10 +766,14 @@ local function createGui()
         end
     end)
 
-    return ui, frame, updateGuiButtons
+    setCollapsed(false)
+    switchTab("Aimbot")
+    updateGuiButtons()
+
+    return ui, frame, updateGuiButtons, setGuiVisible
 end
 
-local Gui, MainFrame, updateGui = createGui()
+local Gui, MainFrame, updateGui, setGuiVisible = createGui()
 updateGui()
 
 local function isEnemy(player)
@@ -677,8 +863,28 @@ local function getEquippedToolName(player)
     if not character then
         return nil
     end
+
     local tool = character:FindFirstChildOfClass("Tool")
-    return tool and tool.Name or nil
+    if not tool then
+        return nil
+    end
+
+    local rawName = tostring(tool.Name or "")
+    local cleanedName = rawName
+        :gsub("%s*%(%d+%)", "")
+        :gsub("%s*%[%d+%]", "")
+        :gsub("%s+%d+$", "")
+        :gsub("%s*[-_]+%d+$", "")
+        :gsub("^Tool%s*", "")
+        :gsub("^Weapon%s*", "")
+        :gsub("%s+$", "")
+
+    local digitsOnly = cleanedName:gsub("%s+", "")
+    if cleanedName == "" or cleanedName == "Tool" or cleanedName == "Weapon" or digitsOnly:match("^%d+$") then
+        return nil
+    end
+
+    return cleanedName
 end
 
 local function createNameTag(player, character)
@@ -732,6 +938,10 @@ local function createNameTag(player, character)
                 labelText = weaponName
             end
         end
+        if labelText == "" then
+            removeNameTag(character)
+            return
+        end
         label.Text = labelText
     end
 
@@ -782,8 +992,20 @@ local function refreshPlayerEsp(player)
         return
     end
     local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid or humanoid.Health <= 0 then
-        clearPlayerVisuals(player, character)
+    if not humanoid then
+        if settings.highlightEnabled then
+            createHighlight(character)
+        else
+            clearPlayerVisuals(player, character)
+        end
+        return
+    end
+    if humanoid.Health <= 0 then
+        if settings.highlightEnabled then
+            createHighlight(character)
+        else
+            clearPlayerVisuals(player, character)
+        end
         return
     end
     task.defer(function()
@@ -802,7 +1024,7 @@ local function connectPlayerLifecycle(player)
         local humanoid = character:WaitForChild("Humanoid", 5)
         if humanoid then
             humanoid.Died:Connect(function()
-                clearPlayerVisuals(player, character)
+                -- keep highlight on dead body and refresh ESP state
                 task.defer(updateEsp)
             end)
         end
@@ -840,35 +1062,68 @@ local function updateEsp()
         return
     end
 
+    if not settings.espEnabled then
+        for character in pairs(highlights) do
+            removeHighlight(character)
+        end
+        for character in pairs(nameTags) do
+            removeNameTag(character)
+        end
+        for character in pairs(tracerLines) do
+            removeTracer(character)
+        end
+        for character in pairs(boxLines) do
+            removeBox(character)
+        end
+        return
+    end
+
     local activePlayers = {}
     for _, player in ipairs(Players:GetPlayers()) do
         if isEnemy(player) then
             local character = player.Character
             local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-            if character and humanoid and humanoid.Health > 0 then
-                activePlayers[character] = player
-                if settings.highlightEnabled then
-                    createHighlight(character)
+            if character then
+                if humanoid then
+                    if humanoid.Health > 0 then
+                        activePlayers[character] = player
+                        if settings.highlightEnabled then
+                            createHighlight(character)
+                        else
+                            removeHighlight(character)
+                        end
+                        if settings.boxEnabled then
+                            createBox(character)
+                        else
+                            removeBox(character)
+                        end
+                        if settings.nameEspEnabled or settings.weaponEspEnabled then
+                            createNameTag(player, character)
+                        else
+                            removeNameTag(character)
+                        end
+                        if settings.tracerEnabled then
+                            createTracer(character)
+                        else
+                            removeTracer(character)
+                        end
+                    else
+                        if settings.highlightEnabled then
+                            createHighlight(character)
+                        else
+                            removeHighlight(character)
+                        end
+                        removeBox(character)
+                        removeNameTag(character)
+                        removeTracer(character)
+                    end
                 else
-                    removeHighlight(character)
+                    if settings.highlightEnabled then
+                        createHighlight(character)
+                    else
+                        clearPlayerVisuals(nil, character)
+                    end
                 end
-                if settings.boxEnabled then
-                    createBox(character)
-                else
-                    removeBox(character)
-                end
-                if settings.nameEspEnabled or settings.weaponEspEnabled then
-                    createNameTag(player, character)
-                else
-                    removeNameTag(character)
-                end
-                if settings.tracerEnabled then
-                    createTracer(character)
-                else
-                    removeTracer(character)
-                end
-            else
-                clearPlayerVisuals(nil, character)
             end
         else
             local character = player.Character
@@ -880,7 +1135,7 @@ local function updateEsp()
 
     for character in pairs(tracerLines) do
         if not activePlayers[character] then
-            clearPlayerVisuals(nil, character)
+            removeTracer(character)
         end
     end
 
@@ -967,16 +1222,49 @@ UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
     if input.UserInputType == Enum.UserInputType.MouseButton2 then
         aiming = true
     end
-    if input.KeyCode == Enum.KeyCode.RightControl then
-        settings.guiVisible = not settings.guiVisible
-        MainFrame.Visible = settings.guiVisible
+
+    local function inputToKeyString(inp)
+        if inp.UserInputType == Enum.UserInputType.MouseButton1 then
+            return "MouseButton1"
+        elseif inp.UserInputType == Enum.UserInputType.MouseButton2 then
+            return "MouseButton2"
+        elseif inp.KeyCode and inp.KeyCode ~= Enum.KeyCode.Unknown then
+            return tostring(inp.KeyCode):gsub("Enum.KeyCode.", "")
+        end
+        return nil
     end
-    if gameProcessedEvent then
+
+    local keyStr = inputToKeyString(input)
+    if not keyStr then return end
+
+    local isBoundKey = settings.keybinds and (
+        keyStr == settings.keybinds.aim or
+        keyStr == settings.keybinds.esp or
+        keyStr == settings.keybinds.minimize
+    )
+    if gameProcessedEvent and not isBoundKey then
         return
     end
-    if input.KeyCode == Enum.KeyCode.T then
+
+    -- Aim bind: toggle aimbot
+    if settings.keybinds and settings.keybinds.aim and keyStr == settings.keybinds.aim then
         settings.aimEnabled = not settings.aimEnabled
         updateGui()
+        return
+    end
+
+    -- ESP bind: toggle esp
+    if settings.keybinds and settings.keybinds.esp and keyStr == settings.keybinds.esp then
+        settings.espEnabled = not settings.espEnabled
+        updateGui()
+        return
+    end
+
+    -- Hide/show bind: toggle full GUI visibility
+    if settings.keybinds and settings.keybinds.minimize and keyStr == settings.keybinds.minimize then
+        setGuiVisible(not settings.guiVisible)
+        updateGui()
+        return
     end
 end)
 
@@ -989,11 +1277,13 @@ end)
 RunService.RenderStepped:Connect(function()
     local cam = getCamera()
     if cam and fovCircle then
-        fovCircle.Visible = settings.aimEnabled
+        fovCircle.Visible = settings.aimEnabled and settings.showFovCircle
         fovCircle.Radius = settings.FOV
         fovCircle.Position = centerPoint()
     end
     updateEsp()
+
+    
 
     if settings.aimEnabled and aiming then
         local target = getClosestTarget()
@@ -1001,11 +1291,14 @@ RunService.RenderStepped:Connect(function()
             local origin = cam.CFrame.Position
             local destination = target.Position
             local lookAt = CFrame.lookAt(origin, destination)
+            local targetCFrame = lookAt
             if settings.aimSmoothEnabled then
-                cam.CFrame = cam.CFrame:Lerp(lookAt, settings.smoothness)
+                cam.CFrame = cam.CFrame:Lerp(targetCFrame, settings.smoothness)
             else
-                cam.CFrame = lookAt
+                cam.CFrame = targetCFrame
             end
+
+            
         end
     end
 end)
